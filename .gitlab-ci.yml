@@ -1,0 +1,96 @@
+image: git.winzana.com:4567/winzana/docker:latest
+
+services:
+    - docker:dind
+
+variables:
+  DOCKER_HOST: tcp://localhost:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+
+stages:
+  - release
+  - deploy_base
+  - deploy_ecs
+
+before_script:
+  - if [[ "$CI_COMMIT_REF_SLUG" == "master" ]]; then export CI_COMMIT_REF_SLUG="latest"; fi
+  - export VERSION_TAG=$CI_COMMIT_REF_SLUG
+  - export WORKSPACE=$(echo -n "$CI_COMMIT_REF_SLUG" | md5sum | awk '{ print $1 }')
+
+
+# RELEASE
+release:fpm:
+    stage: release
+    tags:
+      - docker   
+    script:
+      - docker ps
+      - docker build -f ./api/Dockerfile --target api_platform_php -t ${CONTAINER_REGISTRY_BASE}/php:${CI_COMMIT_REF_SLUG} ./api
+      - $(aws ecr get-login --no-include-email --region ${AWS_REGION})
+      - docker push ${CONTAINER_REGISTRY_BASE}/php:${CI_COMMIT_REF_SLUG}
+
+release:nginx:
+    stage: release
+    tags:
+      - docker
+    script:
+        - docker build -f ./api/Dockerfile --target api_platform_nginx_aws -t ${CONTAINER_REGISTRY_BASE}/nginx:${CI_COMMIT_REF_SLUG} ./api
+        - $(aws ecr get-login --no-include-email --region ${AWS_REGION})
+        - docker push ${CONTAINER_REGISTRY_BASE}/nginx:${CI_COMMIT_REF_SLUG}
+
+# DEPLOY BASE
+deploy_base:
+    stage: deploy_base
+    tags:
+      - docker
+    script:
+      - cd api/terraform/base
+      - terraform init -backend-config="profile=${PROFILE}" -backend-config="bucket=apiplatform-terraform-backend" -backend-config="region=${AWS_REGION}" -backend-config="key=terraform-apiplatform/base-infra.tfstate"
+      - terraform workspace new dev || true
+      - terraform workspace select dev
+      - terraform plan
+      - terraform apply -auto-approve
+
+# DEPLOY ECS
+deploy_ecs:
+    stage: deploy_ecs
+    tags:
+      - docker
+    script:
+      - cd api/terraform/ecs
+      - terraform init -backend-config="profile=${PROFILE}" -backend-config="bucket=apiplatform-terraform-backend" -backend-config="region=${AWS_REGION}" -backend-config="key=terraform-apiplatform/ecs-infra-${WORKSPACE}.tfstate"
+      - terraform workspace new ${WORKSPACE} || true
+      - terraform workspace select ${WORKSPACE}
+      - terraform plan
+      - terraform destroy -auto-approve
+      - terraform apply -auto-approve
+    environment:
+        name: review/$CI_COMMIT_REF_NAME
+        url: http://$WORKSPACE.winzana.co
+        on_stop: stop_review
+    only:
+        - branches
+
+stop_review:
+    stage: deploy_ecs
+    tags:
+      - docker
+    script:
+        - cd api/terraform/ecs
+        - terraform init -backend-config="profile=${PROFILE}" -backend-config="bucket=apiplatform-terraform-backend" -backend-config="region=${AWS_REGION}" -backend-config="key=terraform-apiplatform/ecs-infra-${WORKSPACE}.tfstate"
+        - terraform workspace select ${WORKSPACE}
+        - terraform plan
+        - terraform destroy -auto-approve
+        - cd ../base
+        - terraform init -backend-config="profile=${PROFILE}" -backend-config="bucket=apiplatform-terraform-backend" -backend-config="region=${AWS_REGION}" -backend-config="key=terraform-apiplatform/base-infra.tfstate"
+        - terraform workspace new dev || true
+        - terraform workspace select dev
+        - terraform plan
+        - terraform destroy -auto-approve
+    when: manual
+    environment:
+        name: review/$CI_COMMIT_REF_NAME
+        action: stop
+    only:
+        - branches
