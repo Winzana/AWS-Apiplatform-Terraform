@@ -113,6 +113,10 @@ WORKDIR /srv/api
 
 COPY --from=api_platform_php /srv/api/public public/
 
+# "nginx" fargate
+FROM api_platform_nginx AS api_platform_nginx_aws
+
+COPY docker/nginx/conf.d/aws.conf /etc/nginx/conf.d/default.conf
 
 # "varnish" stage
 # does not depend on any of the above stages, but placed here to keep everything in one Dockerfile

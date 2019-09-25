@@ -1,0 +1,118 @@
+[
+  {
+    "name": "${service_nginx_name}",
+    "image": "${docker_image_nginx}:${docker_tag}",
+    "networkMode": "awsvpc",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": ${container_port_nginx},
+        "hostPort": ${container_port_nginx}
+      }
+    ],
+
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group_name}",
+        "awslogs-region": "${log_group_region}",
+        "awslogs-stream-prefix": "fargate-${service_nginx_name}"
+      }
+    },
+    "environment" :  [
+      {
+        "name" : "PHP_UPSTREAM",
+        "value" : "localhost"
+      }
+    ]
+  },
+  {
+    "name": "database",
+    "image": "postgres:10-alpine",
+    "networkMode": "awsvpc",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": 5432,
+        "hostPort": 5432
+      }
+    ],
+
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group_name}",
+        "awslogs-region": "${log_group_region}",
+        "awslogs-stream-prefix": "fargate-database"
+      }
+    },
+    "environment" :  [
+      {
+        "name" : "POSTGRES_DB",
+        "value" : "apiplatform"
+      },
+      {
+        "name" : "POSTGRES_USER",
+        "value" : "apiplatform"
+      },
+      {
+        "name" : "POSTGRES_PASSWORD",
+        "value" : "apiplatform"
+      }
+    ]
+  },
+  {
+    "name": "${service_php_name}",
+    "image": "${docker_image_fpm}:${docker_tag}",
+    "networkMode": "awsvpc",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": ${container_port_php},
+        "hostPort": ${container_port_php}
+      }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group_name}",
+        "awslogs-region": "${log_group_region}",
+        "awslogs-stream-prefix": "fargate-${service_php_name}"
+      }
+    },
+    "environment": [
+      {
+        "name": "APP_ENV",
+        "value": "${APP_ENV}"
+      },
+      {
+        "name": "APP_SECRET",
+        "value": "${APP_SECRET}"
+      },
+      {
+        "name": "BASE_URL",
+        "value": "${environment}.dev.${base_url}"
+      },
+      {
+        "name": "DATABASE_URL",
+        "value": "postgres://apiplatform:apiplatform@localhost/apiplatform"
+      },
+      {
+        "name" : "API_VERSION",
+        "value" : "1.0.0"
+      },
+      {
+        "name" : "CORS_ALLOW_ORIGIN",
+        "value" : "^https?://${environment}.dev.${base_url}(:[0-9]+)?$"
+      },
+      {
+        "name" : "TRUSTED_PROXIES",
+        "value" : "10.0.0.0/8"
+      },
+      {
+        "name" : "TRUSTED_HOSTS",
+        "value" : "^${environment}.dev.${base_url}|localhost$"
+      }
+    ]
+  }
+]
